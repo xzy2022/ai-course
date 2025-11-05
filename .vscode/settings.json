@@ -1,0 +1,30 @@
+{
+    //=======================基础配置===============================
+    "workbench.editor.showTabs": "multiple", // 显示多个编辑器标签
+    "editor.fontFamily": "Consolas, 'Courier New', monospace", // 设置编辑器字体
+    "editor.fontSize": 14, // 设置编辑器字体大小
+    "editor.tabSize": 4, // 设置制表符大小(字体缩进大小)
+    "editor.guides.bracketPairs": true, // 显示括号匹配(辅助线颜色)
+    "editor.minimap.enabled": false, // 禁用小地图
+    "editor.renderWhitespace": "boundary", // 仅在边界显示空白字符
+    "files.autoSave": "onFocusChange", // 当焦点离开文件时自动保存
+    "terminal.integrated.cursorBlinking": true, // 终端光标闪烁
+    "terminal.integrated.cursorStyle": "line", // 终端光标样式为线条
+    "terminal.integrated.fontWeight": "300", // 终端字体粗细
+    "terminal.integrated.tabs.enabled": true, // 启用终端标签
+    "terminal.integrated.defaultProfile.windows": "Command Prompt", // Windows默认终端为命令提示符
+    "python.terminal.activateEnvironment": true, // 在终端中激活Python环境
+    //-----------------------------------------------
+    //=======================Python配置===============================
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}:${env:PYTHONPATH}"
+    },
+    "terminal.integrated.env.windows": {
+        "PYTHONPATH": "${workspaceFolder};${env:PYTHONPATH}" // 设置PYTHONPATH为工作区路径
+    },
+    //=======================终端报错颜色显示===============================
+    "workbench.colorCustomizations": {
+        "terminal.background": "#1C2023", // 终端背景颜色
+        "terminal.foreground": "#C7CCD1", //终端前景颜色
+    },
+}
