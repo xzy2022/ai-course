@@ -1,10 +1,9 @@
 """
-Demo-style test for the inference backtracking solver.
+Arc-consistency demo tests for the inference backtracking solver.
 
-The example uses the classic Australia map colouring CSP and solves it with
-pure forward checking enabled. Besides exercising the new solver module, the
-demo function can be executed directly to inspect the produced assignment and
-metrics.
+These tests reuse the Australia map colouring CSP to exercise:
+1. Pure arc consistency (AC-3) without forward checking.
+2. The full combination of forward checking, propagation, and arc consistency.
 """
 
 from typing import Dict, Tuple
@@ -45,36 +44,57 @@ def _build_australia_csp() -> Tuple[CSP, Dict[Variable, Tuple[Variable, ...]]]:
     return csp, adjacency
 
 
-def test_forward_checking_demo() -> None:
-    csp, adjacency = _build_australia_csp()
-    solution, metrics = inference_backtracking_with_metrics(
-        csp,
-        techniques=("forward_checking",),
-    )
-
-    assert solution is not None, "forward checking failed to find a solution"
+def _assert_valid_solution(csp: CSP, adjacency: Dict[Variable, Tuple[Variable, ...]], solution: Dict[Variable, Value]) -> None:
     assert csp.is_solution(solution)
-    assert "forward_checking" in metrics["techniques"]
-
     for region, neighbours in adjacency.items():
         for neighbour in neighbours:
             assert solution[region] != solution[neighbour]
 
 
+def test_arc_consistency_demo() -> None:
+    csp, adjacency = _build_australia_csp()
+    solution, metrics = inference_backtracking_with_metrics(
+        csp,
+        techniques=("arc_consistency",),
+    )
+
+    assert solution is not None, "arc consistency failed to find a solution"
+    assert "arc_consistency" in metrics["techniques"]
+    assert metrics["arc_revisions"] >= 1
+    _assert_valid_solution(csp, adjacency, solution)
+
+
+def test_full_inference_stack_demo() -> None:
+    csp, adjacency = _build_australia_csp()
+    solution, metrics = inference_backtracking_with_metrics(
+        csp,
+        techniques=("forward_checking", "constraint_propagation", "arc_consistency"),
+    )
+
+    assert solution is not None, "combined inference failed to find a solution"
+    assert "forward_checking" in metrics["techniques"]
+    assert "constraint_propagation" in metrics["techniques"]
+    assert "arc_consistency" in metrics["techniques"]
+    assert metrics["forward_check_prunes"] >= 1
+    assert metrics["propagation_steps"] >= 0
+    assert metrics["arc_revisions"] >= 0
+    _assert_valid_solution(csp, adjacency, solution)
+
+
 def run_demo() -> None:
     """
-    Execute the demo manually: prints the solution and collected metrics.
+    Convenience entry point: run the solver with all inference techniques enabled.
     """
     csp, _ = _build_australia_csp()
     solution, metrics = inference_backtracking_with_metrics(
         csp,
-        techniques=("forward_checking",),
+        techniques=("forward_checking", "constraint_propagation", "arc_consistency"),
     )
     if solution is None:
         print("No solution found.")
         return
 
-    print("Australia map colouring solution (forward checking):")
+    print("Australia map colouring solution (FC + CP + AC-3):")
     for region in sorted(solution):
         print(f"  {region}: {solution[region]}")
 

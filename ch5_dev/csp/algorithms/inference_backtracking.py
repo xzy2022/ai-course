@@ -6,16 +6,19 @@ inference techniques for CSP search:
 
 1. Forward Checking (FC)
 2. Constraint Propagation (CP)
-3. Arc Consistency (AC-3) - placeholder
+3. Arc Consistency (AC-3)
 
-Forward checking and constraint propagation are implemented. The arc-consistency
-hook remains available for future extension without touching the core loop.
+All three techniques are implemented and can be freely combined without touching
+the core backtracking loop.
 """
 
 from __future__ import annotations
 
+import time
+import tracemalloc
+from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Sequence, Set, Tuple
 
 from ..csp_core import CSP, Variable, Value
 
@@ -78,8 +81,8 @@ class InferenceBacktrackingSolver:
         ),
         "arc_consistency": TechniqueDefinition(
             name="arc_consistency",
-            handler=_stub_not_implemented("arc_consistency"),
-            description="AC-3 enforcement on remaining arcs (placeholder).",
+            handler=lambda solver, var, assignment, removals: solver._arc_consistency(var, assignment, removals),
+            description="AC-3 style enforcement that prunes unsupported values across arcs.",
         ),
     }
 
@@ -100,6 +103,7 @@ class InferenceBacktrackingSolver:
         self._max_depth = 0
         self._forward_prunes = 0
         self._propagation_steps = 0
+        self._arc_revisions = 0
 
     # ------------------------------------------------------------------ Public API
 
@@ -111,14 +115,31 @@ class InferenceBacktrackingSolver:
     def solve_with_metrics(self, csp: CSP) -> Tuple[Optional[Assignment], Dict[str, Any]]:
         """Run search and return (solution, metrics)."""
         self._prepare(csp)
-        solution = self._backtrack({}, depth=0)
+
+        tracemalloc.start()
+        start_time = time.perf_counter()
+        current_bytes = peak_bytes = 0
+        try:
+            solution = self._backtrack({}, depth=0)
+        finally:
+            current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+        elapsed = time.perf_counter() - start_time
+
         self.metrics = {
             "nodes_expanded": float(self._nodes_expanded),
             "backtracks": float(self._backtracks),
             "max_depth": float(self._max_depth),
             "forward_check_prunes": float(self._forward_prunes),
             "propagation_steps": float(self._propagation_steps),
+            "arc_revisions": float(self._arc_revisions),
+            "elapsed_seconds": float(elapsed),
+            "current_memory_mb": float(current_bytes / (1024 * 1024)),
+            "peak_memory_mb": float(peak_bytes / (1024 * 1024)),
+            "solution_found": solution is not None,
+            "assignment_size": float(len(solution) if solution else 0),
             "techniques": ", ".join(defn.name for defn in self.techniques) or "none",
+            "technique_names": [defn.name for defn in self.techniques],
         }
         return solution, dict(self.metrics)
 
@@ -133,6 +154,7 @@ class InferenceBacktrackingSolver:
         self._max_depth = 0
         self._forward_prunes = 0
         self._propagation_steps = 0
+        self._arc_revisions = 0
 
     def _backtrack(self, assignment: Assignment, depth: int) -> Optional[Assignment]:
         if self.csp is None:
@@ -148,7 +170,8 @@ class InferenceBacktrackingSolver:
         if var is None:
             return None
 
-        for value in list(self.current_domains[var]):
+        ordered_values = self._order_values(var, assignment)
+        for value in ordered_values:
             if not self.csp.is_consistent(var, value, assignment):
                 continue
 
@@ -194,6 +217,12 @@ class InferenceBacktrackingSolver:
             self.current_domains[var].add(value)
 
     # ------------------------------------------------------------------ Techniques
+    def _order_values(self, var: Variable, assignment: Assignment) -> List[Value]:
+        """
+        Return the order of domain values to explore for the selected variable.
+        Sub-classes can override to add heuristics such as LCV.
+        """
+        return list(self.current_domains[var])
 
     def _forward_check(self, var: Variable, assignment: Assignment, removals: Removals) -> bool:
         if self.csp is None:
@@ -239,6 +268,65 @@ class InferenceBacktrackingSolver:
                     self._propagation_steps += 1
 
         return True
+
+    def _arc_consistency(self, var: Variable, assignment: Assignment, removals: Removals) -> bool:
+        if self.csp is None:
+            raise RuntimeError("Solver must be prepared with a CSP before searching.")
+
+        arc_queue: Deque[Tuple[Variable, Variable]] = deque()
+
+        for neighbor in self.neighbors.get(var, []):
+            arc_queue.append((neighbor, var))
+
+        while arc_queue:
+            xi, xj = arc_queue.popleft()
+            if xi == xj:
+                continue
+
+            if xi not in self.current_domains or xj not in self.current_domains:
+                continue
+
+            revised = self._revise(xi, xj, assignment, removals)
+            if revised:
+                if not self.current_domains[xi]:
+                    return False
+
+                self._arc_revisions += 1
+                for xk in self.neighbors.get(xi, []):
+                    if xk == xj:
+                        continue
+                    arc_queue.append((xk, xi))
+
+        return True
+
+    def _revise(self, xi: Variable, xj: Variable, assignment: Assignment, removals: Removals) -> bool:
+        if self.csp is None:
+            raise RuntimeError("Solver must be prepared with a CSP before searching.")
+
+        revised = False
+        for value in list(self.current_domains[xi]):
+            if not self._has_support(xi, value, xj, assignment):
+                if self._prune(xi, value, removals):
+                    revised = True
+        return revised
+
+    def _has_support(self, xi: Variable, value: Value, xj: Variable, assignment: Assignment) -> bool:
+        if self.csp is None:
+            raise RuntimeError("Solver must be prepared with a CSP before searching.")
+
+        domain_j = self.current_domains.get(xj, set())
+        if not domain_j:
+            return False
+
+        temp_assignment = assignment.copy()
+        temp_assignment[xi] = value
+
+        for neighbor_value in domain_j:
+            temp_assignment[xj] = neighbor_value
+            if self.csp.is_consistent(xi, value, temp_assignment):
+                return True
+
+        return False
 
     # ------------------------------------------------------------------ Utilities
 
