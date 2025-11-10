@@ -1,0 +1,4 @@
+A: B C D
+B: E 3 F -12 G 8
+C: H 2 I 4 J -6
+D: K 11 L 5 M 2
